@@ -14,11 +14,11 @@ data_loader.py
 
 # Necessary packages
 import numpy as np
-import pandas as pd
-from keras.datasets import mnist
+import torch
+from torchvision import datasets, transforms
+from torch.utils.data.sampler import SubsetRandomSampler
 
-
-def load_mnist_data(label_data_rate):
+def mnist_datasets(args, valid_size=0.2):
     """MNIST data loading.
 
     Args:
@@ -29,37 +29,60 @@ def load_mnist_data(label_data_rate):
       - x_unlab: unlabeled dataset
       - x_test, y_test: test dataset
     """
-    # Import mnist data
-    (x_train, y_train), (x_test, y_test) = mnist.load_data()
+    # percentage of training set to use as validation
+    valid_size = valid_size
+    train_kwargs = {"batch_size": args.batch_size}
+    test_kwargs = {"batch_size": args.test_batch_size}
+    use_cuda = not args.no_cuda and torch.cuda.is_available()
+    if use_cuda:
+        # cuda_kwargs = {"num_workers": 1, "pin_memory": True, "shuffle": True}
+        cuda_kwargs = {"num_workers": 1, "pin_memory": True}
+        train_kwargs.update(cuda_kwargs)
+        test_kwargs.update(cuda_kwargs)
+    # convert data to torch.FloatTensor and normalize
+    transform = transforms.Compose(
+        [
+         transforms.ToTensor(), 
+         transforms.Normalize((0.1307,), (0.3081,))
+        ]
+    )
+    # choose the training and test datasets
+    train_data = datasets.MNIST(root='data', 
+                                train=True,
+                                download=True, 
+                                transform=transform)
 
-    # One hot encoding for the labels
-    y_train = np.asarray(pd.get_dummies(y_train))
-    y_test = np.asarray(pd.get_dummies(y_test))
+    test_data = datasets.MNIST(root='data',
+                               train=False,
+                               download=True,
+                               transform=transform)
 
-    # Normalize features
-    x_train = x_train / 255.0
-    x_test = x_test / 255.0
-
-    # Treat MNIST data as tabular data with 784 features
-    # Shape
-    no, dim_x, dim_y = np.shape(x_train)
-    test_no, _, _ = np.shape(x_test)
-
-    x_train = np.reshape(x_train, [no, dim_x * dim_y])
-    x_test = np.reshape(x_test, [test_no, dim_x * dim_y])
-
-    # Divide labeled and unlabeled data
-    idx = np.random.permutation(len(y_train))
-
-    # Label data : Unlabeled data = label_data_rate:(1-label_data_rate)
-    label_idx = idx[: int(len(idx) * label_data_rate)]
-    unlab_idx = idx[int(len(idx) * label_data_rate) :]
-
-    # Unlabeled data
-    x_unlab = x_train[unlab_idx, :]
-
-    # Labeled data
-    x_label = x_train[label_idx, :]
-    y_label = y_train[label_idx, :]
-
-    return x_label, y_label, x_unlab, x_test, y_test
+    # obtain training indices that will be used for validation
+    num_train = len(train_data)
+    indices = list(range(num_train))
+    np.random.shuffle(indices)
+    split = int(np.floor(valid_size * num_train))
+    train_idx, valid_idx = indices[split:], indices[:split]
+    
+    # define samplers for obtaining training and validation batches
+    train_sampler = SubsetRandomSampler(train_idx)
+    valid_sampler = SubsetRandomSampler(valid_idx)
+    
+    # load training data in batches
+    train_loader = torch.utils.data.DataLoader(train_data,
+                                               sampler=train_sampler,
+                                               **train_kwargs
+                                               )
+    
+    # load validation data in batches
+    valid_loader = torch.utils.data.DataLoader(train_data,
+                                               **train_kwargs,
+                                               sampler=valid_sampler,
+                                               )
+    
+    # load test data in batches
+    test_loader = torch.utils.data.DataLoader(test_data,
+                                              **test_kwargs
+                                             )
+    
+    return train_loader, valid_loader, test_loader

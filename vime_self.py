@@ -14,63 +14,25 @@ vime_self.py
 """
 
 # Necessary packages
-from keras.layers import Input, Dense
-from keras.models import Model
-from keras import models
 
-from vime_utils import mask_generator, pretext_generator
-
-
-def vime_self(x_unlab, p_m, alpha, parameters):
-    """Self-supervised learning part in VIME.
-
-    Args:
-      x_unlab: unlabeled feature
-      p_m: corruption probability
-      alpha: hyper-parameter to control the weights of feature and mask losses
-      parameters: epochs, batch_size
-
-    Returns:
-      encoder: Representation learning block
-    """
-
-    # Parameters
-    _, dim = x_unlab.shape
-    epochs = parameters["epochs"]
-    batch_size = parameters["batch_size"]
-
-    # Build model
-    inputs = Input(shape=(dim,))
-    # Encoder
-    h = Dense(int(dim), activation="relu")(inputs)
-    # Mask estimator
-    output_1 = Dense(dim, activation="sigmoid", name="mask")(h)
-    # Feature estimator
-    output_2 = Dense(dim, activation="sigmoid", name="feature")(h)
-
-    model = Model(inputs=inputs, outputs=[output_1, output_2])
-
-    model.compile(
-        optimizer="rmsprop",
-        loss={"mask": "binary_crossentropy", "feature": "mean_squared_error"},
-        loss_weights={"mask": 1, "feature": alpha},
-    )
-
-    # Generate corrupted samples
-    m_unlab = mask_generator(p_m, x_unlab)
-    m_label, x_tilde = pretext_generator(m_unlab, x_unlab)
-
-    # Fit model on unlabeled data
-    model.fit(
-        x_tilde,
-        {"mask": m_label, "feature": x_unlab},
-        epochs=epochs,
-        batch_size=batch_size,
-    )
-
-    # Extract encoder part
-    layer_name = model.layers[1].name
-    layer_output = model.get_layer(layer_name).output
-    encoder = models.Model(inputs=model.input, outputs=layer_output)
-
-    return encoder
+import torch.nn as nn
+import torch.nn.functional as F
+class VIME_Encoder(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(VIME_Encoder, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.input_dim = input_dim
+        self.fc_enc = nn.Linear(self.input_dim, self.hidden_dim)
+        self.fc_mask = nn.Linear(self.hidden_dim, self.input_dim)
+        self.fc_recon = nn.Linear(self.hidden_dim, self.input_dim)
+        self.dropout = nn.Dropout(0.25)
+    
+    def forward(self, mask, x):
+        mask = self.fc_enc(mask)
+        mask = F.relu(mask)
+        # apply sigmoid in the loss function later, for numerical stability
+        mask = self.fc_mask(mask)
+        x_enc = self.fc_enc(x)
+        x_enc = F.relu(x_enc)
+        x_recon = F.sigmoid(self.fc_recon(x_enc))
+        return x_enc, mask, x_recon

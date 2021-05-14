@@ -20,9 +20,9 @@ vime_utils.py
 
 # Necessary packages
 import numpy as np
+import torch
 from sklearn.metrics import accuracy_score, roc_auc_score
 
-#%%
 def mask_generator(p_m, x):
     """Generate mask vector.
 
@@ -37,7 +37,6 @@ def mask_generator(p_m, x):
     return mask
 
 
-#%%
 def pretext_generator(m, x):
     """Generate corrupted samples.
 
@@ -66,7 +65,32 @@ def pretext_generator(m, x):
     return m_new, x_tilde
 
 
-#%%
+def unsup_data_generator(p_m, x, device):
+    """Generate masks and corrupted samples.
+
+    Args:
+      m: mask matrix
+      x: feature matrix
+
+    Returns:
+      x_tilde: corrupted feature matrix
+    """
+    # Parameters
+    no, dim = x.size()
+    mask = p_m * torch.ones_like(x)
+    mask = torch.bernoulli(mask)
+    # Randomly (and column-wise) shuffle data
+    x_shuffle = torch.zeros([no, dim])
+    for i in range(dim):
+        idx = torch.randperm(no)
+        x_shuffle[:, i] = x[idx, i]
+    # Corrupt samples
+    x_tilde = x * (1 - mask) + x_shuffle * mask
+    # re-calculate mask, in case the original value is sampled, i.e., no replacement
+    mask = 1. * (x != x_tilde)
+    return mask.to(device), x_tilde.to(device)
+
+
 def perf_metric(metric, y_test, y_test_hat):
     """Evaluate performance.
 
@@ -90,7 +114,6 @@ def perf_metric(metric, y_test, y_test_hat):
     return result
 
 
-#%%
 def convert_matrix_to_vector(matrix):
     """Convert two dimensional matrix into one dimensional vector
 
@@ -117,7 +140,6 @@ def convert_matrix_to_vector(matrix):
     return vector
 
 
-#%%
 def convert_vector_to_matrix(vector):
     """Convert one dimensional vector into two dimensional matrix
 
@@ -139,3 +161,63 @@ def convert_vector_to_matrix(vector):
         matrix[idx, i] = 1
 
     return matrix
+
+class EarlyStopping:
+    """
+    Early stops the training if validation loss doesn't improve after a given patience.
+    Code source: https://github.com/Bjarten/early-stopping-pytorch/blob/master/pytorchtools.py
+    """
+
+    def __init__(
+        self, patience=4, verbose=False, delta=0, path="checkpoint.pt", trace_func=print
+    ):
+        """
+        Args:
+            patience (int): How long to wait after last time validation loss improved.
+                            Default: 4
+            verbose (bool): If True, prints a message for each validation loss improvement.
+                            Default: False
+            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
+                            Default: 0
+            path (str): Path for the checkpoint to be saved to.
+                            Default: 'checkpoint.pt'
+            trace_func (function): trace print function.
+                            Default: print
+        """
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
+        self.delta = delta
+        self.path = path
+        self.trace_func = trace_func
+
+    def __call__(self, val_loss, model):
+
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            self.trace_func(
+                f"EarlyStopping counter: {self.counter} out of {self.patience}"
+            )
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        """Saves model when validation loss decrease."""
+        if self.verbose:
+            self.trace_func(
+                f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ..."
+            )
+        torch.save(model.state_dict(), self.path)
+        self.val_loss_min = val_loss
