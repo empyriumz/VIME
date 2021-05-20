@@ -20,8 +20,14 @@ vime_utils.py
 
 # Necessary packages
 import numpy as np
+import pandas as pd
 import torch
 from sklearn.metrics import accuracy_score, roc_auc_score
+
+import joblib
+
+enc = joblib.load("./data/one_hot_encoder.pkl")
+
 
 def mask_generator(p_m, x):
     """Generate mask vector.
@@ -79,7 +85,7 @@ def unsup_data_generator(p_m, x, device):
     no, dim = x.size()
     mask = p_m * torch.ones_like(x)
     mask = torch.bernoulli(mask)
-    # Randomly (and column-wise) shuffle data
+    # Randomly (and column-wise) shuffle data within the batch
     x_shuffle = torch.zeros([no, dim])
     for i in range(dim):
         idx = torch.randperm(no)
@@ -87,8 +93,83 @@ def unsup_data_generator(p_m, x, device):
     # Corrupt samples
     x_tilde = x * (1 - mask) + x_shuffle * mask
     # re-calculate mask, in case the original value is sampled, i.e., no replacement
-    mask = 1. * (x != x_tilde)
+    mask = 1.0 * (x != x_tilde)
     return mask.to(device), x_tilde.to(device)
+
+
+def unsup_generator(p_m, x, device):
+    """Generate masks and corrupted samples.
+    We deal with original dataframes first, 
+    then one-hot encode categorical variables
+    Args:
+      m: mask matrix
+      x: feature matrix
+
+    Returns:
+      x_tilde: corrupted feature matrix
+    """
+    # Parameters
+    continous = [
+        "hours.per.week",
+        "capital.loss",
+        "fnlwgt",
+        "age",
+        "education.num",
+        "capital.gain",
+    ]
+    categorical = [
+        "workclass",
+        "education",
+        "marital.status",
+        "occupation",
+        "relationship",
+        "race",
+        "sex",
+        "native.country",
+    ]
+    cols = [
+        "age",
+        "workclass",
+        "fnlwgt",
+        "education",
+        "education.num",
+        "marital.status",
+        "occupation",
+        "relationship",
+        "race",
+        "sex",
+        "capital.gain",
+        "capital.loss",
+        "hours.per.week",
+        "native.country",
+    ]
+    # categorical = list(set(cols) - set(continous))
+    x = pd.DataFrame(data=x, columns=cols)
+    # Randomly (and column-wise) shuffle data
+    x_shuffle = x.apply(np.random.permutation)
+    mask = np.random.binomial(1, p_m, x.shape)
+    # Corrupt samples
+    x_tilde = x * (1 - mask) + x_shuffle * mask
+    # one-hot encoding
+    cat_x = enc.transform(x[categorical].to_numpy()).todense()
+    x = np.array(
+        np.concatenate([cat_x, x[continous].to_numpy()], axis=1), dtype=np.float32
+    )
+    cat_x_tilde = enc.transform(x_tilde[categorical].to_numpy()).todense()
+    x_tilde = np.array(
+        np.concatenate([cat_x_tilde, x_tilde[continous].to_numpy()], axis=1),
+        dtype=np.float32,
+    )
+    # re-calculate mask, in case the original value is sampled, i.e., no replacement
+    mask = 1.0 * (x != x_tilde)
+    # find the index of continous columns
+    cont_col_indx = list(range(cat_x.shape[1], x.shape[1]))
+    # index for categorical columns
+    cat_col_indx = list(range(cat_x.shape[1]))
+    mask = torch.tensor(mask, dtype=torch.float32).to(device)
+    x = torch.tensor(x, dtype=torch.float32).to(device)
+    x_tilde = torch.tensor(x_tilde, dtype=torch.float32).to(device)
+    return x, x_tilde, mask, cont_col_indx, cat_col_indx
 
 
 def perf_metric(metric, y_test, y_test_hat):
@@ -126,11 +207,7 @@ def convert_matrix_to_vector(matrix):
     # Parameters
     no, dim = matrix.shape
     # Define output
-    vector = np.zeros(
-        [
-            no,
-        ]
-    )
+    vector = np.zeros([no,])
 
     # Convert matrix to vector
     for i in range(dim):
@@ -161,6 +238,7 @@ def convert_vector_to_matrix(vector):
         matrix[idx, i] = 1
 
     return matrix
+
 
 class EarlyStopping:
     """

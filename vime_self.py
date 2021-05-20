@@ -14,7 +14,7 @@ vime_self.py
 """
 
 # Necessary packages
-
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 class VIME_Encoder(nn.Module):
@@ -34,5 +34,5 @@ class VIME_Encoder(nn.Module):
         mask = self.fc_mask(mask)
         x_enc = self.fc_enc(x)
         x_enc = F.relu(x_enc)
-        x_recon = F.sigmoid(self.fc_recon(x_enc))
+        x_recon = torch.sigmoid(self.fc_recon(x_enc))
         return x_enc, mask, x_recon
