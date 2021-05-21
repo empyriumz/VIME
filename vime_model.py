@@ -36,3 +36,20 @@ class VIME_Encoder(nn.Module):
         x_enc = F.relu(x_enc)
         x_recon = torch.sigmoid(self.fc_recon(x_enc))
         return x_enc, mask, x_recon
+    
+class VIME_Predictor(nn.Module):
+    def __init__(self, input_dim, hidden_dim, dropout=0.25):
+        super(VIME_Predictor, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.input_dim = input_dim
+        self.fc_1 = nn.Linear(self.input_dim, self.hidden_dim)
+        self.fc_2 = nn.Linear(self.hidden_dim, 1)
+        self.dropout = nn.Dropout(p=dropout)
+    
+    def forward(self, x):
+        x = self.fc_1(x)
+        x = F.relu(x)
+        x = self.dropout(x)
+        # apply sigmoid in the loss function later, for numerical stability
+        output = self.fc_2(x)
+        return output

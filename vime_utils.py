@@ -143,7 +143,6 @@ def unsup_generator(p_m, x, device):
         "hours.per.week",
         "native.country",
     ]
-    # categorical = list(set(cols) - set(continous))
     x = pd.DataFrame(data=x, columns=cols)
     # Randomly (and column-wise) shuffle data
     x_shuffle = x.apply(np.random.permutation)

@@ -57,7 +57,7 @@ class UCIIncomeDataset(Dataset):
 
 
 def uci_datasets(args, valid_size=0.2):
-    """MNIST data loading.
+    """UCI income data loading.
 
     Args:
       - label_data_rate: ratio of labeled data
